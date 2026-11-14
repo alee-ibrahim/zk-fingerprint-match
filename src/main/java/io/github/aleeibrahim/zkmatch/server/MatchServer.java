@@ -11,8 +11,8 @@ import io.github.aleeibrahim.zkmatch.Identifier;
 import io.github.aleeibrahim.zkmatch.afis.AfisTemplates;
 import io.github.aleeibrahim.zkmatch.gallery.Gallery;
 import io.github.aleeibrahim.zkmatch.gallery.GalleryService;
-import io.github.aleeibrahim.zkmatch.ss21.Ss21Decoder;
 import io.github.aleeibrahim.zkmatch.ss21.Ss21Exception;
+import io.github.aleeibrahim.zkmatch.zk.ZkTemplates;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -115,6 +115,7 @@ public final class MatchServer implements AutoCloseable {
         o.put("lastError", galleries.lastError());
         o.put("loading", galleries.loading());
         o.set("decodeFailures", JSON.valueToTree(g.decodeFailures()));
+        o.set("versions", JSON.valueToTree(g.versions()));
         o.set("skippedVersions", JSON.valueToTree(g.skippedVersions()));
         o.set("headerVariants", JSON.valueToTree(g.variants()));
         o.put("threshold", config.threshold());
@@ -171,7 +172,7 @@ public final class MatchServer implements AutoCloseable {
             if (minutiaeOf(probe) < MIN_PROBE_MINUTIAE) return error(ex, 400, "no usable fingerprint found in the image");
         } else {
             try {
-                probe = AfisTemplates.fromSs21(Ss21Decoder.decodeBase64(template));
+                probe = AfisTemplates.fromSs21(ZkTemplates.decodeAny(template).template());
             } catch (Ss21Exception e) {
                 return error(ex, 400, "template: " + e.getMessage());
             }
@@ -193,6 +194,7 @@ public final class MatchServer implements AutoCloseable {
             ObjectNode n = list.addObject();
             n.put("id", c.id());
             n.put("finger", c.finger());
+            n.put("version", c.version());
             n.put("score", Math.round(c.score() * 10) / 10.0);
         }
         o.put("match", r.match());

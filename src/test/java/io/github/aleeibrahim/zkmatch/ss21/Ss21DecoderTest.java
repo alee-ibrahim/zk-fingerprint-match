@@ -111,6 +111,65 @@ class Ss21DecoderTest {
         assertReason(Ss21Exception.Reason.UNSUPPORTED_VARIANT, () -> Ss21Decoder.decode(hugeWidth));
     }
 
+    @Test
+    void roundTripsSyntheticSr23Templates() {
+        Random rnd = new Random(4);
+        for (int i = 0; i < 200; i++) {
+            List<Ss21Minutia> minutiae = Synthetic.finger(rnd);
+            int width = 260 + rnd.nextInt(60), height = 340 + rnd.nextInt(40);
+            byte[] raw = Synthetic.encode(Ss21Decoder.Layout.SR23, width, height, minutiae, rnd.nextInt(600), rnd);
+            Ss21Template t = Ss21Decoder.decode(raw, Ss21Decoder.Layout.SR23);
+            assertEquals(width, t.width());
+            assertEquals(height, t.height());
+            assertEquals(minutiae, t.minutiae());
+        }
+    }
+
+    @Test
+    void sr23MaskAddsResidues0And3() {
+        int lengthLow = 0x5A;
+        for (int i = 18; i < 120; i++) {
+            int expected = switch (i % 10) {
+                case 0 -> 0x05;
+                case 1 -> lengthLow;
+                case 3 -> 0x01;
+                case 8 -> 0xC4;
+                default -> 0;
+            };
+            assertEquals(expected, Ss21Decoder.maskByte(i, lengthLow, Ss21Decoder.Layout.SR23), "position " + i);
+        }
+    }
+
+    /** A 12.0 template built byte by byte, independent of the test encoder. */
+    @Test
+    void decodesAHandBuiltSr23Template() {
+        int length = 36;
+        byte[] raw = new byte[length];
+        System.arraycopy("SR23".getBytes(StandardCharsets.US_ASCII), 0, raw, 2, 4);
+        raw[9] = (byte) length;
+        byte[] constant = {0x05, 0x05, 0x05, 0x07, 0x09, (byte) 0xCE, (byte) 0xD0};
+        System.arraycopy(constant, 0, raw, 11, 7);
+        raw[20] = (byte) (0x18 ^ 0x05);      // width 280: residue 0 (mask 0x05)
+        raw[21] = (byte) (0x01 ^ length);    // residue 1 (mask = byte 9)
+        raw[22] = 0x69;                      // height 361
+        raw[23] = (byte) (0x01 ^ 0x01);      // residue 3 (mask 0x01)
+        raw[29] = 1;
+        raw[30] = (byte) (0x23 ^ 0x05);      // x = 0x0123
+        raw[31] = (byte) (0x01 ^ length);
+        raw[32] = (byte) 0xF0;               // y = 0x00F0
+        raw[33] = (byte) (0x00 ^ 0x01);
+        raw[34] = 64;
+        raw[35] = 100;
+
+        Ss21Template t = Ss21Decoder.decode(raw, Ss21Decoder.Layout.SR23);
+        assertEquals(280, t.width());
+        assertEquals(361, t.height());
+        assertEquals(List.of(new Ss21Minutia(0x0123, 0xF0, 64, 100)), t.minutiae());
+        // The same bytes are not a 10.0 template.
+        assertReason(Ss21Exception.Reason.NOT_SS21, () -> Ss21Decoder.decode(raw));
+        assertReason(Ss21Exception.Reason.NOT_SR23, () -> Ss21Decoder.decode(Synthetic.encode(280, 361, Synthetic.finger(new Random(9)), 10, new Random(9)), Ss21Decoder.Layout.SR23));
+    }
+
     private static void assertReason(Ss21Exception.Reason reason, org.junit.jupiter.api.function.Executable run) {
         assertEquals(reason, assertThrows(Ss21Exception.class, run).reason());
     }

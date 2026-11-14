@@ -3,7 +3,9 @@ package io.github.aleeibrahim.zkmatch.server;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import io.github.aleeibrahim.zkmatch.zk.ZkTemplates;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -26,7 +28,8 @@ public record Config(
         double imageDpi,
         int maxBodyBytes,
         int matchWorkers,
-        int httpThreads) {
+        int httpThreads,
+        List<ZkTemplates.Format> templateVersions) {
 
     public static Config fromEnv(Map<String, String> env) {
         String token = secret(env, "MATCHER_TOKEN");
@@ -51,7 +54,8 @@ public record Config(
                 decimal(env, "IMAGE_DPI", 500),
                 integer(env, "MAX_BODY_BYTES", 4 * 1024 * 1024),
                 integer(env, "MATCH_WORKERS", Math.max(1, cpus)),
-                integer(env, "HTTP_THREADS", 8));
+                integer(env, "HTTP_THREADS", 8),
+                ZkTemplates.parsePreference(env.getOrDefault("TEMPLATE_VERSIONS", "10,12,13")));
     }
 
     /** NAME, or the contents of the file NAME_FILE points to. */
@@ -94,6 +98,7 @@ public record Config(
         return "Config[port=" + port + ", gallerySource=" + gallerySource + ", cvsBaseUrl=" + (cvsBaseUrl.isBlank() ? "-" : "set")
                 + ", cvsPublicKeyPin=" + (cvsPublicKeyPin.isBlank() ? "-" : "set") + ", cvsTlsInsecure=" + cvsTlsInsecure
                 + ", refreshMinutes=" + refreshInterval.toMinutes() + ", threshold=" + threshold + ", imageDpi=" + imageDpi
-                + ", maxBodyBytes=" + maxBodyBytes + ", matchWorkers=" + matchWorkers + "]";
+                + ", maxBodyBytes=" + maxBodyBytes + ", matchWorkers=" + matchWorkers
+                + ", templateVersions=" + templateVersions.stream().map(ZkTemplates.Format::version).toList() + "]";
     }
 }

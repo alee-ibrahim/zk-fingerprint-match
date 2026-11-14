@@ -6,6 +6,7 @@ import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
 import com.machinezoo.sourceafis.FingerprintTemplate;
 import io.github.aleeibrahim.zkmatch.ss21.Ss21Decoder;
 import io.github.aleeibrahim.zkmatch.ss21.Ss21Minutia;
+import io.github.aleeibrahim.zkmatch.zk.Zk13Decoder;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +17,7 @@ import java.util.Random;
 import javax.imageio.ImageIO;
 
 /**
- * Synthetic test data only: made-up minutiae, SS21 templates written from them, and
+ * Synthetic test data only: made-up minutiae, ZK 10.0/12.0/13.0 templates written from them, and
  * fingerprint-like images drawn from a ridge phase field. No real fingerprint is used anywhere
  * in this repository.
  */
@@ -25,19 +26,26 @@ public final class Synthetic {
 
     public static final int WIDTH = 280, HEIGHT = 361;
 
-    /** Writes an SS21 template the way the decoder reads one (the inverse of {@link Ss21Decoder}). */
+    /** Writes an SS21 (ZK 10.0) template the way the decoder reads one (the inverse of {@link Ss21Decoder}). */
     public static byte[] encode(int width, int height, List<Ss21Minutia> minutiae, int trailing, Random rnd) {
+        return encode(Ss21Decoder.Layout.SS21, width, height, minutiae, trailing, rnd);
+    }
+
+    /** Writes an SS21 (10.0) or SR23 (12.0) template the way the decoder reads one. */
+    public static byte[] encode(Ss21Decoder.Layout layout, int width, int height, List<Ss21Minutia> minutiae, int trailing, Random rnd) {
         int n = minutiae.size();
         if (n > 255) throw new IllegalArgumentException("at most 255 minutiae");
         int length = Ss21Decoder.RECORDS_OFFSET + Ss21Decoder.RECORD_SIZE * n + trailing;
         byte[] d = new byte[length];
         d[0] = (byte) rnd.nextInt(256);
         d[1] = (byte) rnd.nextInt(256);
-        System.arraycopy("SS21".getBytes(StandardCharsets.US_ASCII), 0, d, 2, 4);
+        System.arraycopy(layout.magic().getBytes(StandardCharsets.US_ASCII), 0, d, 2, 4);
         d[8] = (byte) (length >> 8);
         d[9] = (byte) length;
         d[10] = (byte) rnd.nextInt(256);
-        byte[] constant = {0x04, 0x08, 0x05, 0x07, 0x09, (byte) 0xCE, (byte) 0xD0};
+        byte[] constant = layout == Ss21Decoder.Layout.SS21
+                ? new byte[]{0x04, 0x08, 0x05, 0x07, 0x09, (byte) 0xCE, (byte) 0xD0}
+                : new byte[]{0x05, 0x05, 0x05, 0x07, 0x09, (byte) 0xCE, (byte) 0xD0};
         System.arraycopy(constant, 0, d, 11, constant.length);
         d[18] = (byte) 0xC4;
         d[20] = (byte) width;
@@ -58,7 +66,55 @@ public final class Synthetic {
         }
         for (int i = Ss21Decoder.RECORDS_OFFSET + Ss21Decoder.RECORD_SIZE * n; i < length; i++) d[i] = (byte) rnd.nextInt(256);
         // The mask is its own inverse.
-        return Ss21Decoder.unmask(d);
+        return Ss21Decoder.unmask(d, layout);
+    }
+
+    /** A ZK 13.0 record in its own frame: coordinates and the angle in 5-degree steps. */
+    public record Zk13Record(int x13, int y13, int step) {}
+
+    /** The 13.0 records for minutiae in the 10.0 frame (transposed, scaled by 0.8, angle in 72 steps). */
+    public static List<Zk13Record> toZk13(List<Ss21Minutia> minutiae) {
+        List<Zk13Record> out = new ArrayList<>();
+        for (Ss21Minutia m : minutiae) {
+            out.add(new Zk13Record((int) Math.round(m.y() / Zk13Decoder.SCALE), (int) Math.round(m.x() / Zk13Decoder.SCALE),
+                    Math.floorMod((int) Math.round(m.angle() * Zk13Decoder.ANGLE_STEPS / 256.0), Zk13Decoder.ANGLE_STEPS)));
+        }
+        return out;
+    }
+
+    /** Writes a 1552-byte ZK 13.0 template the way {@link Zk13Decoder} reads one, with random descriptors. */
+    public static byte[] encode13(List<Zk13Record> records, Random rnd) {
+        if (records.size() > Zk13Decoder.MAX_RECORDS) throw new IllegalArgumentException("at most 48 records");
+        byte[] d = new byte[1552];
+        System.arraycopy(Zk13Decoder.MAGIC, 0, d, 0, Zk13Decoder.MAGIC.length);
+        d[6] = (byte) rnd.nextInt(256);
+        d[7] = (byte) rnd.nextInt(256);
+        d[10] = 0x0D;
+        d[12] = 0x01;
+        d[13] = (byte) rnd.nextInt(256);
+        d[14] = (byte) rnd.nextInt(256);
+        for (int k = 0; k < records.size(); k++) {
+            Zk13Record r = records.get(k);
+            int o = Zk13Decoder.RECORDS_OFFSET + Zk13Decoder.RECORD_SIZE * k;
+            d[o] = (byte) r.x13();
+            d[o + 1] = (byte) (r.x13() >> 8);
+            d[o + 2] = (byte) r.y13();
+            d[o + 3] = (byte) (r.y13() >> 8);
+            d[o + 4] = (byte) r.step();
+            d[o + 5] = (byte) rnd.nextInt(256);
+            for (int i = 6; i < 9; i++) d[o + i] = (byte) (1 + rnd.nextInt(3));
+            for (int i = 9; i < 24; i++) d[o + i] = (byte) (rnd.nextInt(80) - 40);
+        }
+        for (int i = 1200; i < 1530; i++) d[i] = (byte) rnd.nextInt(256);
+        return Zk13Decoder.unmask(d);
+    }
+
+    public static String encode13Base64(List<Ss21Minutia> minutiae, Random rnd) {
+        return Base64.getEncoder().encodeToString(encode13(toZk13(minutiae), rnd));
+    }
+
+    public static String encode12Base64(List<Ss21Minutia> minutiae, Random rnd) {
+        return Base64.getEncoder().encodeToString(encode(Ss21Decoder.Layout.SR23, WIDTH, HEIGHT, minutiae, 200 + rnd.nextInt(400), rnd));
     }
 
     public static String encodeBase64(List<Ss21Minutia> minutiae, Random rnd) {

@@ -26,7 +26,7 @@ public final class Main {
             return;
         }
         LOG.info("starting with " + config);
-        GalleryService galleries = new GalleryService(source, config.refreshInterval());
+        GalleryService galleries = new GalleryService(source, config.refreshInterval(), config.templateVersions());
         MatchServer server = new MatchServer(config, galleries);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             server.close();
