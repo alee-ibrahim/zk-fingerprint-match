@@ -19,8 +19,8 @@ import java.util.concurrent.Future;
  * was loaded, so a search does no template work for it.
  */
 public final class Identifier {
-    /** The best finger of one person. */
-    public record Candidate(String id, int finger, double score) {}
+    /** The best finger of one person, and the template version it matched. */
+    public record Candidate(String id, int finger, String version, double score) {}
 
     /**
      * @param candidates the best score per person, highest first, at most {@code top}
@@ -53,7 +53,7 @@ public final class Identifier {
                     // One matcher per slice: a matcher indexes the probe once and is reused for every candidate.
                     FingerprintMatcher matcher = new FingerprintMatcher(probe);
                     Map<String, Candidate> local = new HashMap<>();
-                    for (Gallery.Entry e : slice) keepBest(local, new Candidate(e.id(), e.finger(), matcher.match(e.template())));
+                    for (Gallery.Entry e : slice) keepBest(local, new Candidate(e.id(), e.finger(), e.version(), matcher.match(e.template())));
                     return local;
                 }));
             }

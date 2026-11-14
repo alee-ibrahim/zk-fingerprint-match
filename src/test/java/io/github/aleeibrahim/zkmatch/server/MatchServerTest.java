@@ -60,6 +60,9 @@ class MatchServerTest {
         var enrolled = io.github.aleeibrahim.zkmatch.afis.AfisTemplates.fromImage(Synthetic.image(pattern, 300, 375, 0, 0), 500);
         pins.add("9999");
         fingers.put("9999", Synthetic.minutiaeOf(enrolled));
+        // One person enrolled only with a ZK 13.0 template.
+        pins.add("8888");
+        fingers.put("8888", Synthetic.finger(rnd));
         cvs = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         cvs.createContext("/api/v2/person/getPersonList", ex -> {
             seenQueries.add(ex.getRequestURI().getRawQuery());
@@ -77,8 +80,16 @@ class MatchServerTest {
             seenQueries.add(ex.getRequestURI().getRawQuery());
             String pin = ex.getRequestURI().getPath().substring("/api/bioTemplate/getFgListByPin/".length());
             List<Ss21Minutia> f = fingers.get(pin);
-            String data = f == null ? "[]" : "[{\"pin\":\"" + pin + "\",\"templateNo\":5,\"version\":\"10\",\"template\":\"" + Synthetic.encodeBase64(f, rnd)
-                    + "\"},{\"pin\":\"" + pin + "\",\"templateNo\":5,\"version\":\"12\",\"template\":\"AAAA\"}]";
+            String data;
+            if (f == null) {
+                data = "[]";
+            } else if (pin.equals("8888")) {
+                data = "[" + stored(pin, "13", Synthetic.encode13Base64(f, rnd)) + "]";
+            } else {
+                // The same finger in 10.0, 12.0 and 13.0, as a USB enrollment stores it, and a face template.
+                data = "[" + stored(pin, "10", Synthetic.encodeBase64(f, rnd)) + "," + stored(pin, "12", Synthetic.encode12Base64(f, rnd)) + ","
+                        + stored(pin, "13", Synthetic.encode13Base64(f, rnd)) + ",{\"pin\":\"" + pin + "\",\"templateNo\":0,\"version\":\"39.3\",\"template\":\"AAAA\"}]";
+            }
             reply(ex, "{\"code\":0,\"message\":\"success\",\"data\":" + data + "}");
         });
         cvs.start();
@@ -117,7 +128,13 @@ class MatchServerTest {
         assertEquals("cvsecurity", h.path("source").asText());
         assertEquals(fingers.size(), h.path("templates").asInt());
         assertEquals(fingers.size(), h.path("persons").asInt());
-        assertEquals(fingers.size(), h.path("skippedVersions").path("12").asInt());
+        int n = fingers.size();
+        assertEquals(n, h.path("skippedVersions").path("39.3").asInt() + 1);
+        assertEquals(n - 1, h.path("versions").path("10").path("used").asInt());
+        assertEquals(n - 1, h.path("versions").path("12").path("decoded").asInt());
+        assertEquals(0, h.path("versions").path("12").path("used").asInt());
+        assertEquals(n, h.path("versions").path("13").path("decoded").asInt());
+        assertEquals(1, h.path("versions").path("13").path("used").asInt());
         assertEquals(65.0, h.path("threshold").asDouble());
         assertTrue(seenQueries.stream().allMatch(q -> q.contains("access_token=" + CVS_TOKEN)));
         assertTrue(seenQueries.stream().anyMatch(q -> q.contains("pageNo=2")));
@@ -156,6 +173,24 @@ class MatchServerTest {
         JsonNode strict = json(post("/identify", body.replace("\"top\":3", "\"threshold\":100000"), TOKEN));
         assertFalse(strict.path("match").asBoolean());
         assertEquals(100000.0, strict.path("threshold").asDouble());
+    }
+
+    @Test
+    void identifiesTemplatesOfEveryVersion() throws Exception {
+        galleries.refresh();
+        String who = fingers.keySet().stream().sorted().skip(23).findFirst().orElseThrow();
+        for (String tpl : List.of(Synthetic.encode12Base64(Synthetic.press(fingers.get(who), rnd), rnd),
+                Synthetic.encode13Base64(Synthetic.press(fingers.get(who), rnd), rnd))) {
+            JsonNode j = json(post("/identify", "{\"template\":\"" + tpl + "\"}", TOKEN));
+            assertEquals(who, j.path("candidates").get(0).path("id").asText(), j.toString());
+            assertEquals("10", j.path("candidates").get(0).path("version").asText());
+            assertTrue(j.path("match").asBoolean(), j.toString());
+        }
+        // The person enrolled only in 13.0 is found too, and the answer says which version matched.
+        JsonNode j = json(post("/identify", "{\"template\":\"" + Synthetic.encodeBase64(Synthetic.press(fingers.get("8888"), rnd), rnd) + "\"}", TOKEN));
+        assertEquals("8888", j.path("candidates").get(0).path("id").asText(), j.toString());
+        assertEquals("13", j.path("candidates").get(0).path("version").asText());
+        assertTrue(j.path("match").asBoolean(), j.toString());
     }
 
     @Test
@@ -217,6 +252,10 @@ class MatchServerTest {
             m.setAccessible(true);
             return (String) m.invoke(null, p, pins);
         }
+    }
+
+    private static String stored(String pin, String version, String template) {
+        return "{\"pin\":\"" + pin + "\",\"templateNo\":5,\"version\":\"" + version + "\",\"template\":\"" + template + "\"}";
     }
 
     private HttpResponse<String> get(String path) throws Exception {

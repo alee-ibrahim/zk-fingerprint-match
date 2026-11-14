@@ -15,3 +15,6 @@ target/
 *.bmp
 captures/
 own-captures/
+*.zk10
+*.zk12
+*.zk13

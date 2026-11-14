@@ -40,6 +40,7 @@ class IdentifierTest {
                 for (int i = 0; i < PERSONS; i++) sink.accept(new StoredTemplate("p" + i, 5, "10", Synthetic.encodeBase64(fingers.get(i), rnd)));
                 sink.accept(new StoredTemplate("other", 1, "12.0", "AAAA"));
                 sink.accept(new StoredTemplate("other", 2, "13", "AAAA"));
+                sink.accept(new StoredTemplate("face", 0, "39.3", "AAAA"));
                 sink.accept(new StoredTemplate("broken", 3, "10", "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIj"));
             }
         };
@@ -57,8 +58,8 @@ class IdentifierTest {
     void countsWhatItSkips() {
         assertEquals(PERSONS, gallery.size());
         assertEquals(PERSONS, gallery.persons());
-        assertEquals(Map.of("12", 1, "13", 1), gallery.skippedVersions());
-        assertEquals(Map.of("NOT_SS21", 1), gallery.decodeFailures());
+        assertEquals(Map.of("39.3", 1), gallery.skippedVersions());
+        assertEquals(Map.of("10:NOT_SS21", 1, "12:TOO_SHORT", 1, "13:TOO_SHORT", 1), gallery.decodeFailures());
         assertEquals(Map.of("280x361", PERSONS), gallery.variants());
     }
 

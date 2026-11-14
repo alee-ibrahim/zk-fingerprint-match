@@ -1,7 +1,9 @@
 package io.github.aleeibrahim.zkmatch.gallery;
 
 import java.time.Duration;
+import io.github.aleeibrahim.zkmatch.zk.ZkTemplates;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -19,6 +21,7 @@ public final class GalleryService implements AutoCloseable {
 
     private final GallerySource source;
     private final Duration interval;
+    private final List<ZkTemplates.Format> preference;
     private final AtomicReference<Gallery> current = new AtomicReference<>(Gallery.empty());
     private final AtomicBoolean loading = new AtomicBoolean(false);
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -31,8 +34,14 @@ public final class GalleryService implements AutoCloseable {
     private volatile long lastLoadMillis;
 
     public GalleryService(GallerySource source, Duration interval) {
+        this(source, interval, Gallery.DEFAULT_PREFERENCE);
+    }
+
+    /** @param preference the template versions to load, most preferred first (one version is kept per finger) */
+    public GalleryService(GallerySource source, Duration interval, List<ZkTemplates.Format> preference) {
         this.source = source;
         this.interval = interval;
+        this.preference = List.copyOf(preference);
     }
 
     /** Loads now in the background, then every interval. */
@@ -53,12 +62,12 @@ public final class GalleryService implements AutoCloseable {
         long started = System.nanoTime();
         lastAttempt = Instant.now();
         try {
-            Gallery g = Gallery.load(source);
+            Gallery g = Gallery.load(source, preference);
             current.set(g);
             lastError = null;
             lastLoadMillis = (System.nanoTime() - started) / 1_000_000;
-            LOG.info(() -> String.format("gallery loaded from %s: %d templates, %d persons, decode failures %s, skipped versions %s, %d ms",
-                    source.name(), g.size(), g.persons(), g.decodeFailures(), g.skippedVersions(), lastLoadMillis));
+            LOG.info(() -> String.format("gallery loaded from %s: %d templates, %d persons, versions %s, decode failures %s, skipped versions %s, %d ms",
+                    source.name(), g.size(), g.persons(), g.versions(), g.decodeFailures(), g.skippedVersions(), lastLoadMillis));
             return true;
         } catch (Exception e) {
             // Messages from the source name paths and codes only, never URLs, tokens or templates.

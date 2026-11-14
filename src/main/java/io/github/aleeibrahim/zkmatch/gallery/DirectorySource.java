@@ -10,10 +10,11 @@ import java.util.stream.Stream;
 
 /**
  * Templates from a folder, for trying the service without a CVSecurity server. Each file
- * {@code <id>_<finger>.ss21} holds one base64 ZK 10.0 template.
+ * {@code <id>_<finger>.<ext>} holds one base64 template: {@code .ss21} or {@code .zk10} for
+ * ZK 10.0, {@code .zk12} for 12.0 and {@code .zk13} for 13.0.
  */
 public final class DirectorySource implements GallerySource {
-    private static final Pattern NAME = Pattern.compile("(.+)_(\\d+)\\.ss21");
+    private static final Pattern NAME = Pattern.compile("(.+)_(\\d+)\\.(ss21|zk10|zk12|zk13)");
     private final Path dir;
 
     public DirectorySource(Path dir) {
@@ -31,7 +32,8 @@ public final class DirectorySource implements GallerySource {
             for (Path f : (Iterable<Path>) files.sorted()::iterator) {
                 Matcher m = NAME.matcher(f.getFileName().toString());
                 if (!m.matches()) continue;
-                sink.accept(new StoredTemplate(m.group(1), Integer.parseInt(m.group(2)), "10", Files.readString(f).trim()));
+                String version = m.group(3).equals("ss21") ? "10" : m.group(3).substring(2);
+                sink.accept(new StoredTemplate(m.group(1), Integer.parseInt(m.group(2)), version, Files.readString(f).trim()));
             }
         }
     }
